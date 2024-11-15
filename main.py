@@ -8,4 +8,5 @@ file_name = "0000.flac"
 path = r"D:\PythonSoundProcessing\MainProject\SoundFiles"
 #Functions.DrawSoundWaveForm(file_name, path)
 fileNames= [f"{str(i)}.flac" for i in range(10)]
-Functions.DrawAllSoundsWaveForm(fileNames,path,True)
+Functions.DrawAllSoundsWaveForm///sdfsdf(fileNames,path,True)
+#123123123123
