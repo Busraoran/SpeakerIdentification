@@ -35,7 +35,7 @@ class Functions:
                     continue
 
                 for file_name in os.listdir(chapter_path):
-                    if file_name.endswith(".flac"):
+                    if file_name.endswith((".flac", ".wav")):
                         file_path = os.path.join(chapter_path, file_name)
                         mfcc_features = Functions.ExtractMfccFeatures(file_path, n_mfcc)
                         features.append(mfcc_features)
@@ -124,7 +124,7 @@ class Functions:
                     continue
 
                 for file_name in os.listdir(chapter_path):
-                    if file_name.endswith(".flac"):
+                    if file_name.endswith((".flac", ".wav")):
                         file_path = os.path.join(chapter_path, file_name)
                         mfcc = Functions.ExtractMfccFeaturesCNN(file_path, n_mfcc)
                         
