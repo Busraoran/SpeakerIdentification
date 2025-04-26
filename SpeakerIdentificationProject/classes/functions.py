@@ -11,6 +11,11 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense
 from tensorflow.keras.utils import to_categorical
 from sklearn.preprocessing import LabelEncoder
+import cv2
+from sklearn.cluster import KMeans
+from scipy.signal import argrelextrema
+
+
 class Functions:
     #KNN
     @staticmethod
@@ -183,4 +188,141 @@ class Functions:
 
     #CNNEnd
 
-    
+    #Açı- genlik dönüşümü 
+
+    @staticmethod
+    def find_local_extrema(signal):
+        max_idx = argrelextrema(signal, np.greater)[0]
+        min_idx = argrelextrema(signal, np.less)[0]
+        return max_idx, min_idx
+
+    @staticmethod
+    def calculate_angle_amplitude(signal, peaks, valleys):
+        points = np.sort(np.concatenate((peaks, valleys)))
+        angle_list = []
+        amplitude_list = []
+
+        for i in range(1, len(points)-1):
+            x1, y1 = points[i-1], signal[points[i-1]]
+            x2, y2 = points[i], signal[points[i]]
+            x3, y3 = points[i+1], signal[points[i+1]]
+
+            left_dist = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+            right_dist = np.sqrt((x3 - x2)**2 + (y3 - y2)**2)
+
+            m1 = (y2 - y1) / (x2 - x1 + 1e-8)
+            m2 = (y3 - y2) / (x3 - x2 + 1e-8)
+            angle = np.degrees(np.arctan((m2 - m1) / (1 + m1 * m2 + 1e-8)))
+
+            if left_dist < right_dist:
+                amplitude = left_dist / (right_dist + 1e-8)
+            else:
+                amplitude = -(right_dist / (left_dist + 1e-8))
+
+            angle_list.append(angle)
+            amplitude_list.append(amplitude)
+
+        return np.array(angle_list), np.array(amplitude_list)
+
+    @staticmethod
+    def generate_angle_amplitude_image(angle, amplitude, size=(300, 300)):
+        img = np.zeros(size, dtype=np.uint8)
+        center = (size[1]//2, size[0]//2)
+
+        for a, amp in zip(angle, amplitude):
+            x = int(center[0] + amp * center[0])
+            y = int(center[1] - a * center[1] / 180)
+
+            if 0 <= x < size[1] and 0 <= y < size[0]:
+                img[y, x] = 255
+
+        return img
+
+    @staticmethod
+    def extract_features(images, n_clusters=500):
+        sift = cv2.SIFT_create()
+        descriptor_list = []
+
+        for img in images:
+            keypoints = cv2.goodFeaturesToTrack(img, 500, 0.01, 10)
+            if keypoints is not None:
+                keypoints = [cv2.KeyPoint(float(x[0][0]), float(x[0][1]), 1) for x in keypoints]
+                _, descriptors = sift.compute(img, keypoints)
+                if descriptors is not None:
+                    descriptor_list.extend(descriptors)
+
+        descriptor_array = np.array(descriptor_list, dtype=np.float32)
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+        kmeans.fit(descriptor_array)
+
+        features = []
+        for img in images:
+            keypoints = cv2.goodFeaturesToTrack(img, 500, 0.01, 10)
+            if keypoints is not None:
+                keypoints = [cv2.KeyPoint(float(x[0][0]), float(x[0][1]), 1) for x in keypoints]
+                _, descriptors = sift.compute(img, keypoints)
+                if descriptors is not None:
+                    predict = kmeans.predict(descriptors.astype(np.float32))
+                    hist, _ = np.histogram(predict, bins=np.arange(n_clusters+1))
+                else:
+                    hist = np.zeros(n_clusters)
+            else:
+                hist = np.zeros(n_clusters)
+            features.append(hist)
+
+        return np.array(features)
+
+    @staticmethod
+    def prepare_dataset(data_dir):
+        images = []
+        labels = []
+
+        for root, dirs, files in os.walk(data_dir):
+            for file_name in files:
+                if not file_name.endswith('.flac'):
+                    continue
+
+                file_path = os.path.join(root, file_name)
+                signal, sr = librosa.load(file_path, sr=None)
+
+                peaks, valleys = Functions.find_local_extrema(signal)
+                angle1, amplitude1 = Functions.calculate_angle_amplitude(signal, peaks, valleys)
+
+                signal_smooth = librosa.effects.preemphasis(signal)
+                peaks2, valleys2 = Functions.find_local_extrema(signal_smooth)
+                angle2, amplitude2 = Functions.calculate_angle_amplitude(signal_smooth, peaks2, valleys2)
+
+                img1 = Functions.generate_angle_amplitude_image(angle1, amplitude1)
+                img2 = Functions.generate_angle_amplitude_image(angle2, amplitude2)
+
+                combined_img = cv2.addWeighted(img1, 0.5, img2, 0.5, 0)
+                images.append(combined_img)
+
+                speaker_id = os.path.basename(os.path.dirname(file_path))
+                labels.append(speaker_id)
+
+        return images, labels
+
+    @staticmethod
+    def run_knn_pipeline(data_dir):
+        images, labels = Functions.prepare_dataset(data_dir)
+        features = Functions.extract_features(images)
+
+        X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, random_state=42)
+
+        knn = KNeighborsClassifier(n_neighbors=5, metric='euclidean')
+        knn.fit(X_train, y_train)
+
+        y_pred = knn.predict(X_test)
+        acc = accuracy_score(y_test, y_pred)
+
+        print(f"Accuracy: {acc * 100:.2f}%")
+
+        # Karışıklık matrisi
+        cm = confusion_matrix(y_test, y_pred)
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+        plt.title('KNN Confusion Matrix')
+        plt.xlabel('Predicted Label')
+        plt.ylabel('True Label')
+        plt.show()
