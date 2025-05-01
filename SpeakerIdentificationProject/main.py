@@ -1,6 +1,7 @@
 from classes.functions import Functions
+from sklearn.metrics import classification_report
 
-
+# MFCC
 #soundFilesDir="D:/PythonSoundProcessing/SpeakerIdentification/SoundFiles"
 #soundFilesDir="C:/Users/Busra/Desktop/speakeridentification/train-clean.100tar/LibriSpeech"
 #data_dir = soundFilesDir+"/train"
@@ -23,9 +24,21 @@ from classes.functions import Functions
 #Functions.CnnModel(X_cnn, y_cnn)
 #CNNEnd
 
+#########################################################################################################
+
 # açı genlik dönüşümü 
+
 
 if __name__ == "__main__":
     soundFilesDir = "C:/Users/Busra/Desktop/speakeridentification/train-clean.100tar/LibriSpeech"
     data_dir = soundFilesDir + "/train"
+
     Functions.run_knn_pipeline(data_dir)
+
+    #Functions.run_svm_pipeline(data_dir) 
+
+   # Functions.run_cnn_pipeline(data_dir)
+
+
+
+

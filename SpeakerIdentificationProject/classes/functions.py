@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.svm import SVC
 from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import accuracy_score, confusion_matrix
+from sklearn.metrics import accuracy_score, confusion_matrix,classification_report
 import seaborn as sns
 import matplotlib.pyplot as plt
 from tensorflow.keras.models import Sequential
@@ -189,7 +189,7 @@ class Functions:
     #CNNEnd
 
     #Açı- genlik dönüşümü 
-
+    
     @staticmethod
     def find_local_extrema(signal):
         max_idx = argrelextrema(signal, np.greater)[0]
@@ -252,7 +252,7 @@ class Functions:
                     descriptor_list.extend(descriptors)
 
         descriptor_array = np.array(descriptor_list, dtype=np.float32)
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
         kmeans.fit(descriptor_array)
 
         features = []
@@ -272,6 +272,7 @@ class Functions:
 
         return np.array(features)
 
+  
     @staticmethod
     def prepare_dataset(data_dir):
         images = []
@@ -279,7 +280,7 @@ class Functions:
 
         for root, dirs, files in os.walk(data_dir):
             for file_name in files:
-                if not file_name.endswith('.flac'):
+                if not file_name.endswith(('.flac','.wav')):
                     continue
 
                 file_path = os.path.join(root, file_name)
@@ -298,17 +299,19 @@ class Functions:
                 combined_img = cv2.addWeighted(img1, 0.5, img2, 0.5, 0)
                 images.append(combined_img)
 
-                speaker_id = os.path.basename(os.path.dirname(file_path))
+                #  Ana değişiklik burada:
+                speaker_id = int(os.path.basename(os.path.dirname(os.path.dirname(file_path))))
                 labels.append(speaker_id)
 
         return images, labels
+
 
     @staticmethod
     def run_knn_pipeline(data_dir):
         images, labels = Functions.prepare_dataset(data_dir)
         features = Functions.extract_features(images)
 
-        X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, random_state=42)
+        X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, random_state=42, stratify=labels)
 
         knn = KNeighborsClassifier(n_neighbors=5, metric='euclidean')
         knn.fit(X_train, y_train)
@@ -326,3 +329,107 @@ class Functions:
         plt.xlabel('Predicted Label')
         plt.ylabel('True Label')
         plt.show()
+
+        # Precision, Recall, F1-Score Raporu
+        print("\nClassification Report:")
+        print(classification_report(y_test, y_pred))
+
+    @staticmethod
+    def run_svm_pipeline(data_dir):
+        images, labels = Functions.prepare_dataset(data_dir)
+        features = Functions.extract_features(images)
+
+        X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, random_state=42, stratify=labels)
+
+        svm = SVC(kernel='linear', probability=True)
+        svm.fit(X_train, y_train)
+
+        y_pred = svm.predict(X_test)
+        acc = accuracy_score(y_test, y_pred)
+
+        print(f"Accuracy: {acc * 100:.2f}%")
+
+        # Karışıklık matrisi
+        cm = confusion_matrix(y_test, y_pred)
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+        plt.title('SVM Confusion Matrix')
+        plt.xlabel('Predicted Label')
+        plt.ylabel('True Label')
+        plt.show()
+
+        # Precision, Recall, F1-Score Raporu
+        print("\nClassification Report:")
+        print(classification_report(y_test, y_pred))
+
+
+
+    @staticmethod
+    def run_cnn_pipeline(data_dir, batch_size=32, epochs=10):
+        images, labels = Functions.prepare_dataset(data_dir)
+
+        # Normalize et (0-1 aralığına)
+        images = np.array(images, dtype=np.float32) / 255.0
+        images = images[..., np.newaxis]  # Kanal boyutu ekle (300, 300, 1)
+        labels = np.array(labels)
+
+        # Label encoding
+        encoder = LabelEncoder()
+        y_encoded = encoder.fit_transform(labels)
+        y_categorical = to_categorical(y_encoded)
+
+        # Veriyi böl
+        X_train, X_test, y_train, y_test = train_test_split(images, y_categorical, test_size=0.2, random_state=42, stratify=y_categorical)
+
+        # Model kur
+        model = Sequential([
+            Conv2D(32, (3, 3), activation='relu', input_shape=(300, 300, 1)),
+            MaxPooling2D(pool_size=(2, 2)),
+            Conv2D(64, (3, 3), activation='relu'),
+            MaxPooling2D(pool_size=(2, 2)),
+            Flatten(),
+            Dense(128, activation='relu'),
+            Dense(y_categorical.shape[1], activation='softmax')
+        ])
+
+        model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+        # Eğit
+        model.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, validation_data=(X_test, y_test))
+
+        # Değerlendir
+        test_loss, test_acc = model.evaluate(X_test, y_test, verbose=0)
+        print(f"\nCNN Test Doğruluğu (Accuracy): {test_acc * 100:.2f}%")
+
+        # Tahminler
+        y_pred = model.predict(X_test)
+        y_pred_labels = np.argmax(y_pred, axis=1)
+        y_true_labels = np.argmax(y_test, axis=1)
+
+        # Karışıklık Matrisi
+        cm = confusion_matrix(y_true_labels, y_pred_labels)
+
+        plt.figure(figsize=(20, 18))  # Daha büyük ve geniş bir matris çizimi
+        sns.heatmap(
+            cm,
+            annot=True,
+            fmt='d',
+            cmap='Blues',
+            annot_kws={"size": 10}  # Sayı fontunu ayarla
+        )
+
+        plt.xticks(rotation=45, ha='right', fontsize=10)
+        plt.yticks(rotation=0, fontsize=10)
+
+        plt.title('CNN Confusion Matrix', fontsize=14)
+        plt.xlabel('Predicted Label', fontsize=12)
+        plt.ylabel('True Label', fontsize=12)
+
+        plt.tight_layout()  # Görsel taşmasın diye
+        plt.show()
+
+        # Precision, Recall, F1-Score Raporu
+        
+        print("\nClassification Report:")
+        print(classification_report(y_true_labels, y_pred_labels, target_names=encoder.classes_))
+
