@@ -1,19 +1,20 @@
 import os
 import librosa
 import numpy as np
-from sklearn.svm import SVC
-from sklearn.model_selection import train_test_split
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import accuracy_score, confusion_matrix,classification_report
-import seaborn as sns
+import cv2
 import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.cluster import KMeans
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+from scipy.signal import argrelextrema
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense
 from tensorflow.keras.utils import to_categorical
 from sklearn.preprocessing import LabelEncoder
-import cv2
-from sklearn.cluster import KMeans
-from scipy.signal import argrelextrema
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from skimage.feature import hog
 
 
 class Functions:
@@ -188,8 +189,9 @@ class Functions:
 
     #CNNEnd
 
-    #Açı- genlik dönüşümü 
-    
+    #Açı genlik dönüşümü 
+
+class Functions:
     @staticmethod
     def find_local_extrema(signal):
         max_idx = argrelextrema(signal, np.greater)[0]
@@ -239,40 +241,14 @@ class Functions:
         return img
 
     @staticmethod
-    def extract_features(images, n_clusters=500):
-        sift = cv2.SIFT_create()
-        descriptor_list = []
-
-        for img in images:
-            keypoints = cv2.goodFeaturesToTrack(img, 500, 0.01, 10)
-            if keypoints is not None:
-                keypoints = [cv2.KeyPoint(float(x[0][0]), float(x[0][1]), 1) for x in keypoints]
-                _, descriptors = sift.compute(img, keypoints)
-                if descriptors is not None:
-                    descriptor_list.extend(descriptors)
-
-        descriptor_array = np.array(descriptor_list, dtype=np.float32)
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-        kmeans.fit(descriptor_array)
-
+    def extract_features(images, **kwargs):
         features = []
         for img in images:
-            keypoints = cv2.goodFeaturesToTrack(img, 500, 0.01, 10)
-            if keypoints is not None:
-                keypoints = [cv2.KeyPoint(float(x[0][0]), float(x[0][1]), 1) for x in keypoints]
-                _, descriptors = sift.compute(img, keypoints)
-                if descriptors is not None:
-                    predict = kmeans.predict(descriptors.astype(np.float32))
-                    hist, _ = np.histogram(predict, bins=np.arange(n_clusters+1))
-                else:
-                    hist = np.zeros(n_clusters)
-            else:
-                hist = np.zeros(n_clusters)
-            features.append(hist)
-
+            feat = hog(img, orientations=9, pixels_per_cell=(8, 8),
+                       cells_per_block=(2, 2), visualize=False)
+            features.append(feat)
         return np.array(features)
 
-  
     @staticmethod
     def prepare_dataset(data_dir):
         images = []
@@ -299,17 +275,17 @@ class Functions:
                 combined_img = cv2.addWeighted(img1, 0.5, img2, 0.5, 0)
                 images.append(combined_img)
 
-                #  Ana değişiklik burada:
                 speaker_id = int(os.path.basename(os.path.dirname(os.path.dirname(file_path))))
                 labels.append(speaker_id)
 
         return images, labels
 
 
+
     @staticmethod
     def run_knn_pipeline(data_dir):
         images, labels = Functions.prepare_dataset(data_dir)
-        features = Functions.extract_features(images)
+        features = Functions.extract_features(images, n_clusters=1000)
 
         X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, random_state=42, stratify=labels)
 
@@ -337,9 +313,12 @@ class Functions:
     @staticmethod
     def run_svm_pipeline(data_dir):
         images, labels = Functions.prepare_dataset(data_dir)
-        features = Functions.extract_features(images)
+        features = Functions.extract_features(images, n_clusters=1000)
 
-        X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, random_state=42, stratify=labels)
+        encoder = LabelEncoder()
+        y_encoded = encoder.fit_transform(labels)
+
+        X_train, X_test, y_train, y_test = train_test_split(features, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded)
 
         svm = SVC(kernel='linear', probability=True)
         svm.fit(X_train, y_train)
@@ -349,18 +328,22 @@ class Functions:
 
         print(f"Accuracy: {acc * 100:.2f}%")
 
-        # Karışıklık matrisi
         cm = confusion_matrix(y_test, y_pred)
-        plt.figure(figsize=(10, 8))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
-        plt.title('SVM Confusion Matrix')
-        plt.xlabel('Predicted Label')
-        plt.ylabel('True Label')
+        plt.figure(figsize=(20, 18))
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                    xticklabels=encoder.classes_, yticklabels=encoder.classes_, annot_kws={"size": 10})
+        plt.xticks(rotation=45, ha='right', fontsize=10)
+        plt.yticks(rotation=0, fontsize=10)
+        plt.xlabel('Predicted Label', fontsize=12)
+        plt.ylabel('True Label', fontsize=12)
+        plt.title('SVM Confusion Matrix', fontsize=14)
+        plt.tight_layout()
         plt.show()
 
-        # Precision, Recall, F1-Score Raporu
         print("\nClassification Report:")
-        print(classification_report(y_test, y_pred))
+        print(classification_report(y_test, y_pred, target_names=[str(c) for c in encoder.classes_]))
+
+
 
 
 
